@@ -1,0 +1,30 @@
+[package]
+name = "ff-downloader"
+version = "0.1.0"
+description = "FF Downloader"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "ff_downloader_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+scraper = { version = "0.27", features = ["atomic"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+wreq = { version = "6.0.0-rc.29", features = ["stream", "cookies"] }
+wreq-util = "3.0.0-rc.14"
+http = "1"
+
+[features]
+default = ["custom-protocol", "devtools"]
+custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
