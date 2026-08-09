@@ -62,12 +62,12 @@ fn get_links_from_page(html: &str) -> Result<Vec<String>, String> {
         .collect();
 
     if tags.is_empty() {
-        return Err("fuckingfast linki bulunamadı".into());
+        return Err("no fuckingfast link found".into());
     }
 
     let href = tags[0]
         .attr("href")
-        .ok_or("href yok")?
+        .ok_or("no href")?
         .to_string();
 
     let spoiler_sel = Selector::parse(
@@ -107,7 +107,7 @@ async fn fetch_page(url: &str) -> Result<String, String> {
         .map_err(|e| format!("HTTP: {}", e))?;
 
     if resp.status() == 403 {
-        return Err("Cloudflare/DDoS koruması".into());
+        return Err("Cloudflare/DDoS protection".into());
     }
 
     resp.text()
@@ -251,12 +251,12 @@ async fn wait_resolver(
     loop {
         let elapsed = t0.elapsed();
         if elapsed >= Duration::from_secs(360) {
-            return Err("Zaman aşımı: Cloudflare çözülemedi".into());
+            return Err("Timeout: could not solve Cloudflare".into());
         }
         if !shown && elapsed >= Duration::from_secs(180) {
             shown = true;
             let _ = window.show();
-            debug_log("timeout - pencere görünür yapıldı, manuel çözüm bekleniyor");
+            debug_log("timeout - window made visible, waiting for manual solve");
         }
         tokio::select! {
             v = rx.recv() => match v {
@@ -266,7 +266,7 @@ async fn wait_resolver(
                     }
                     return Ok(d);
                 }
-                None => return Err("resolver kapatıldı".to_string()),
+                None => return Err("resolver closed".to_string()),
             },
             _ = tokio::time::sleep(Duration::from_millis(500)) => {
                 if let Ok(t) = window.title() {
@@ -316,7 +316,7 @@ async fn resolve_via_webview(app: &AppHandle, link: &str) -> Result<String, Stri
 
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .visible(false)
-        .title("Cloudflare Çözülüyor...")
+        .title("Solving Cloudflare...")
         .inner_size(560.0, 700.0)
         .initialization_script(RESOLVER_JS)
         .on_navigation({
@@ -353,7 +353,7 @@ async fn resolve_download_url(app: &AppHandle, link: &str) -> Result<(String, St
     let filename = link
         .split('#')
         .nth(1)
-        .ok_or("filename yok")?
+        .ok_or("no filename")?
         .to_string();
 
     let dl_url = resolve_via_webview(app, link).await?;
@@ -416,8 +416,8 @@ async fn cancel_download(link: String) -> Result<(), String> {
             s.sp.clone()
         })
         .flatten();
-    // Parçalar hâlâ dosya handle'ını tutuyor olabilir; handle kapanınca silmek için
-    // birkaç kez dene. Bu sayede cancel'a tıklanınca dosya eninde sonunda kaldırılır.
+    // Parts may still hold the file handle; retry a few times so the file is
+    // eventually removed after cancel is clicked.
     if let Some(p) = path {
         tokio::spawn(async move {
             for _ in 0..120 {
@@ -442,7 +442,7 @@ async fn probe_total(dl_url: &str) -> u64 {
     let uri: http::Uri = match dl_url.parse() {
         Ok(u) => u,
         Err(e) => {
-            debug_log(&format!("probe URI hata: {}", e));
+            debug_log(&format!("probe URI error: {}", e));
             return 0;
         }
     };
@@ -457,7 +457,7 @@ async fn probe_total(dl_url: &str) -> u64 {
         }
     };
     if resp.status() != 206 {
-        debug_log(&format!("probe status: {} (206 degil)", resp.status()));
+        debug_log(&format!("probe status: {} (not 206)", resp.status()));
         return 0;
     }
     match resp.headers().get("Content-Range") {
@@ -539,7 +539,7 @@ async fn download_part(
         }
         if !ranged && from > 0 {
             if attempt == MAX_RETRIES {
-                return Err("Sunucu aralık isteğini desteklemiyor".into());
+                return Err("Server does not support range requests".into());
             }
             tokio::time::sleep(Duration::from_millis(500 * (attempt as u64 + 1))).await;
             continue;
@@ -561,15 +561,15 @@ async fn download_part(
         let mut stream = resp.bytes_stream();
         let mut fail: Option<String> = None;
 
-        // Her veri parçası için idle timeout: bağlantı kabul edilip veri gelmezse
-        // (CDN bağlantıyı açık tutarsa) parça sonsuza dek beklemesin; retry devreye girsin.
+        // Per-chunk idle timeout: if the connection accepts but no data arrives
+        // (CDN keeps the connection open), do not let the part wait forever; retry.
         loop {
             let item = tokio::time::timeout(IDLE_TIMEOUT, stream.next()).await;
             let item = match item {
                 Ok(Some(i)) => i,
                 Ok(None) => break,
                 Err(_) => {
-                    fail = Some("İdare timeout: veri gelmedi".into());
+                    fail = Some("Idle timeout: no data received".into());
                     break;
                 }
             };
@@ -620,7 +620,7 @@ async fn download_part(
         drop(f);
 
         if written < part_len {
-            let e = fail.unwrap_or_else(|| "Eksik veri (bağlantı kapandı)".into());
+            let e = fail.unwrap_or_else(|| "Missing data (connection closed)".into());
             if attempt == MAX_RETRIES {
                 return Err(e);
             }
@@ -642,7 +642,7 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
     let file = match tokio::fs::File::create(&sp).await {
         Ok(f) => f,
         Err(e) => {
-            debug_log(&format!("parallel File::create hata: {}", e));
+            debug_log(&format!("parallel File::create error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -651,9 +651,9 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
             return;
         }
     };
-    // Dosyayı önceden boyutlandır ki parçalar bağımsız offset'lere yazsın.
+    // Pre-allocate the file so parts can write to independent offsets.
     if let Err(e) = file.set_len(total).await {
-        debug_log(&format!("set_len hata: {}", e));
+        debug_log(&format!("set_len error: {}", e));
         PROGRESS
             .lock()
             .unwrap()
@@ -662,7 +662,7 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
         return;
     }
     drop(file);
-    debug_log(&format!("dosya hazir: {} ({} B)", sp, total));
+    debug_log(&format!("file ready: {} ({} B)", sp, total));
     PROGRESS
         .lock()
         .unwrap()
@@ -769,7 +769,7 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
     let uri: http::Uri = match dl_url.parse() {
         Ok(u) => u,
         Err(e) => {
-            debug_log(&format!("single URI hata: {}", e));
+            debug_log(&format!("single URI error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -792,7 +792,7 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
             return;
         }
         Err(e) => {
-            debug_log(&format!("single HTTP hata: {}", e));
+            debug_log(&format!("single HTTP error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -805,7 +805,7 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
     let mut file = match tokio::fs::File::create(&sp).await {
         Ok(f) => f,
         Err(e) => {
-            debug_log(&format!("single file create hata: {}", e));
+            debug_log(&format!("single file create error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -830,7 +830,7 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
                     .lock()
                     .unwrap()
                     .get_mut(&link)
-                    .map(|s| s.error = Some("İdare timeout: veri gelmedi".into()));
+                    .map(|s| s.error = Some("Idle timeout: no data received".into()));
                 return;
             }
         };
@@ -903,15 +903,15 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
 
 fn human_status(code: &str) -> &str {
     match code {
-        "start" => "Cloudflare kontrol ediliyor...",
-        "turnstile_clicked" => "Doğrulama kutusu tıklanıyor...",
-        "turnstile_box_click" => "Doğrulama çözülüyor...",
-        "btn_ready" => "İndirme butonu hazır, tıklanıyor...",
-        "clicked" => "Buton tıklandı, bekleniyor...",
-        "dlpass_ok" => "Oturum çerezi alındı, link çözülüyor...",
-        "no_button" => "İndirme butonu bulunamadı!",
-        "give_up" => "Çözüm başarısız oldu!",
-        _ => "Link çözülüyor...",
+        "start" => "Checking Cloudflare...",
+        "turnstile_clicked" => "Clicking verification box...",
+        "turnstile_box_click" => "Solving verification...",
+        "btn_ready" => "Download button ready, clicking...",
+        "clicked" => "Button clicked, waiting...",
+        "dlpass_ok" => "Session cookie received, resolving link...",
+        "no_button" => "Download button not found!",
+        "give_up" => "Resolution failed!",
+        _ => "Resolving link...",
     }
 }
 
@@ -927,7 +927,7 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
             error: None,
             paused: false,
             sp: None,
-            status: Some("Link çözülüyor (Cloudflare)...".into()),
+            status: Some("Resolving link (Cloudflare)...".into()),
         },
     );
     CTRL.lock().unwrap().insert(link.clone(), CtrlState::Running);
@@ -944,7 +944,7 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
         .lock()
         .unwrap()
         .get_mut(&link)
-        .map(|s| s.status = Some("İndirme hazırlanıyor...".into()));
+        .map(|s| s.status = Some("Preparing download...".into()));
     let save_path = std::path::Path::new(&save_dir).join(&filename);
     let sp = save_path.to_string_lossy().to_string();
     PROGRESS
@@ -959,10 +959,10 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
         debug_log(&format!("probe_total: {} B", total));
         let parts = parts.clamp(1, 16);
         if total == 0 || parts <= 1 {
-            debug_log("single_download basliyor");
+            debug_log("single_download starting");
             single_download(link_c, dl_url, sp, total).await;
         } else {
-            debug_log(&format!("parallel_download basliyor parts={}", parts));
+            debug_log(&format!("parallel_download starting parts={}", parts));
             parallel_download(link_c, dl_url, sp, total, parts).await;
         }
     });
