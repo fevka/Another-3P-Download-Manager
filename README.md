@@ -160,7 +160,7 @@ Output:
    * A supported webpage URL, or
    * A list of supported direct download-host links.
 
-3. Click **PARSE** to load the available files into the list.
+3. Click **FETC URL** to load the available files into the list.
 
 4. **Choose which files to download.**
 
