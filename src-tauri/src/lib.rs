@@ -115,117 +115,130 @@ async fn fetch_page(url: &str) -> Result<String, String> {
         .map_err(|e| format!("Body: {}", e))
 }
 
-#[cfg(target_os = "windows")]
-fn native_click(x: i32, y: i32) {
-    use std::thread::sleep;
-    use std::time::Duration;
-    extern "system" {
-        fn SetCursorPos(X: i32, Y: i32) -> i32;
-        fn mouse_event(dwFlags: u32, dx: i32, dy: i32, dwData: u32, dwExtraInfo: usize);
-    }
-    const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
-    const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
-    unsafe {
-        SetCursorPos(x, y);
-        sleep(Duration::from_millis(40));
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        sleep(Duration::from_millis(60));
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-    }
-}
+
 
 const RESOLVER_JS: &str = r#"
 (function () {
-  if (window.__ff_resolver_started) return;
-  window.__ff_resolver_started = true;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const dbg = (s) => {
+  if (window.__ff_auto_click_active) return;
+  window.__ff_auto_click_active = true;
+
+  // Block popup windows / ads
+  try { window.open = () => null; } catch(e) {}
+
+  const findBtn = () =>
+    document.querySelector('a.gay-button, button.gay-button, [class*="gay-button"]');
+
+  // Direct HTMX POST to /go endpoint with real token
+  const doPost = (el) => {
+    const hxPost = el && el.getAttribute && el.getAttribute('hx-post');
+    if (!hxPost) return;
+    const token = window.turnstileToken || '';
     try {
-      document.title = "FF|" + String(s).slice(0, 100);
-    } catch (e) {}
-  };
-  const report = (url) => {
-    try {
-      document.title = "FF_RESOLVED|" + url;
-    } catch (e) {}
-  };
-  (async () => {
-    try { window.open = function () { return null; }; } catch (e) {}
-    dbg("start");
-    const clickTurnstile = async () => {
-      try {
-        const frames = document.querySelectorAll(
-          "iframe[src*='challenges.cloudflare.com'], iframe[src*='challenges.cloudflare']"
-        );
-        for (const f of frames) {
-          try {
-            const rect = f.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-              const uniq = Math.floor(Math.random() * 1e6);
-              document.title = "FF_CLICK|" + Math.round(rect.left + 40) + "," + Math.round(rect.top + 32) + "," + uniq;
-              return;
-            }
-          } catch (e) {}
-        }
-      } catch (e) {}
-    };
-    await clickTurnstile();
-    let btn = null;
-    const deadline = Date.now() + 120000;
-    const selectors = [
-      "a.gay-button",
-      "button.gay-button",
-      "a[class*='gay-button']",
-      "a[href*='/f/']"
-    ];
-    while (Date.now() < deadline) {
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) { btn = el; break; }
-      }
-      if (btn) {
-        const html = btn.outerHTML || "";
-        const disabled = /not-allowed|opacity\s*:\s*0\.[0-4]|disabled/i.test(html);
-        if (!disabled) { dbg("btn_ready"); break; }
-      }
-      if (Date.now() % 6000 < 400) await clickTurnstile();
-      await sleep(400);
-    }
-    if (!btn) { dbg("no_button"); return; }
-    try { btn.click(); } catch (e) {}
-    dbg("clicked");
-    const dlDeadline = Date.now() + 20000;
-    while (Date.now() < dlDeadline) {
-      if ((document.cookie || "").indexOf("dlpass") !== -1) { dbg("dlpass_ok"); break; }
-      await sleep(300);
-    }
-    const fileId = (location.pathname || "").replace(/^\//, "");
-    const goUrl = "https://fuckingfast.co/f/" + fileId + "/go";
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const resp = await fetch(goUrl, {
-          method: "POST",
-          headers: {
-            "HX-Request": "true",
-            "HX-Current-URL": location.href,
-            "Origin": "https://fuckingfast.co",
-            "Content-Type": "application/x-www-form-urlencoded"
-          },
-          body: ""
+      if (window.htmx) {
+        window.htmx.ajax('POST', hxPost, {
+          source: el,
+          swap: 'none',
+          values: { 'cf-turnstile-response': token }
         });
-        const hx = resp.headers.get("HX-Redirect") || resp.headers.get("hx-redirect");
-        if (hx) {
-          const url = hx.startsWith("/") ? "https://fuckingfast.co" + hx : hx;
-          report(url);
-          return;
+      }
+    } catch(e) {}
+    // Also try direct fetch as fallback
+    try {
+      fetch('https://fuckingfast.co' + hxPost, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'HX-Request': 'true',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'HX-Current-URL': location.href,
+        },
+        body: 'cf-turnstile-response=' + encodeURIComponent(token)
+      }).then(r => {
+        const redir = r.headers.get('HX-Redirect') || r.headers.get('hx-redirect');
+        if (redir) {
+          const url = redir.startsWith('/') ? 'https://fuckingfast.co' + redir : redir;
+          location.href = url;
         }
-      } catch (e) {}
-      await sleep(1000);
+      });
+    } catch(e) {}
+  };
+
+  const clickBtn = (el) => {
+    if (!el) return;
+    // Ensure visual/HTMX condition is met
+    try { window.dlCleared = true; window.turnstileSuccess = true; } catch(e) {}
+    try { el.style.opacity = '1'; el.style.cursor = 'pointer'; } catch(e) {}
+    try { if (el.__x) { el.__x.$data.turnstileSuccess = true; el.__x.$data.cleared = true; } } catch(e) {}
+    // Fire all click events
+    try { el.focus(); el.click(); } catch(e) {}
+    try {
+      ['mousedown', 'mouseup', 'click'].forEach(t =>
+        el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }))
+      );
+    } catch(e) {}
+    try { if (window.htmx) window.htmx.trigger(el, 'click'); } catch(e) {}
+    // Direct POST as backup
+    doPost(el);
+  };
+
+  let stage = 0;
+
+  const tryDownload = () => {
+    if (stage > 0) return;
+    const btn = findBtn();
+    if (!btn) return;
+
+    // Check real token or button unlocked (opacity high = Turnstile passed)
+    const hasToken = !!window.turnstileToken || !!window.dlCleared;
+    let opacity = 1;
+    try { opacity = parseFloat(window.getComputedStyle(btn).opacity) || 1; } catch(e) {}
+    const btnUnlocked = opacity > 0.8;
+
+    if (!hasToken && !btnUnlocked) return; // Still waiting for Turnstile
+
+    stage = 1;
+    console.log('[FF] Token ready / button unlocked, clicking...');
+
+    // Click 1 then Click 2 with 800ms gap
+    setTimeout(() => {
+      clickBtn(findBtn() || btn);
+      setTimeout(() => {
+        clickBtn(findBtn() || btn);
+        stage = 2;
+      }, 800);
+    }, 1000);
+  };
+
+  // Hook Turnstile callback so we click the moment the real token arrives
+  try {
+    const origCallback = window.onTurnstileSuccess;
+    window.onTurnstileSuccess = (token) => {
+      window.turnstileToken = token;
+      if (origCallback) origCallback(token);
+      setTimeout(tryDownload, 300); // small delay for Alpine to update
+    };
+    // Also patch turnstile render options if they exist
+    const origRender = window.turnstile && window.turnstile.render;
+    if (origRender) {
+      window.turnstile.render = (container, params) => {
+        const origCb = params && params.callback;
+        if (params) {
+          params.callback = (token) => {
+            window.turnstileToken = token;
+            if (origCb) origCb(token);
+            setTimeout(tryDownload, 300);
+          };
+        }
+        return origRender.call(window.turnstile, container, params);
+      };
     }
-    dbg("give_up");
-  })();
+  } catch(e) {}
+
+  // Polling fallback every 500ms
+  setInterval(tryDownload, 500);
 })();
 "#;
+
 
 async fn wait_resolver(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
@@ -233,54 +246,31 @@ async fn wait_resolver(
     link: &str,
 ) -> Result<String, String> {
     let t0 = tokio::time::Instant::now();
-    let mut shown = false;
-    let mut last_title = String::new();
+    let mut last_inject = tokio::time::Instant::now();
+    let mut has_centered = false;
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(-10000, -10000)));
+    let _ = window.show();
+    let _ = window.eval(RESOLVER_JS);
     loop {
         let elapsed = t0.elapsed();
         if elapsed >= Duration::from_secs(360) {
             return Err("Timeout: could not solve Cloudflare".into());
-        }
-        if !shown && elapsed >= Duration::from_secs(15) {
-            shown = true;
-            let _ = window.show();
         }
         tokio::select! {
             v = rx.recv() => match v {
                 Some(d) => return Ok(d),
                 None => return Err("resolver closed".to_string()),
             },
-            _ = tokio::time::sleep(Duration::from_millis(500)) => {
-                if let Ok(t) = window.title() {
-                    if t != last_title {
-                        last_title = t.clone();
-                        if let Some(rest) = t.strip_prefix("FF_RESOLVED|") {
-                            if !rest.is_empty() {
-                                return Ok(rest.to_string());
-                            }
-                        } else if let Some(rest) = t.strip_prefix("FF_CLICK|") {
-                            let parts: Vec<&str> = rest.split(',').collect();
-                            if parts.len() >= 2 {
-                                if let (Ok(x), Ok(y)) = (
-                                    parts[0].trim().parse::<f64>(),
-                                    parts[1].trim().parse::<f64>(),
-                                ) {
-                                    let _ = window.show();
-                                    let scale = window.scale_factor().unwrap_or(1.0);
-                                    let pos = window.outer_position().unwrap_or_default();
-                                    let sx = (pos.x as f64 + x * scale) as i32;
-                                    let sy = (pos.y as f64 + y * scale) as i32;
-                                    std::thread::spawn(move || native_click(sx, sy));
-                                }
-                            }
-                        } else if let Some(rest) = t.strip_prefix("FF|") {
-                            let msg = human_status(rest.trim()).to_string();
-                            PROGRESS
-                                .lock()
-                                .unwrap()
-                                .get_mut(link)
-                                .map(|s| s.status = Some(msg));
-                        }
-                    }
+            _ = tokio::time::sleep(Duration::from_millis(400)) => {
+                if !has_centered && elapsed >= Duration::from_secs(7) {
+                    has_centered = true;
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(500, 600)));
+                    let _ = window.center();
+                    let _ = window.set_focus();
+                }
+                if last_inject.elapsed() >= Duration::from_secs(2) {
+                    last_inject = tokio::time::Instant::now();
+                    let _ = window.eval(RESOLVER_JS);
                 }
                 if check_ctrl(link) == CtrlState::Cancelled {
                     return Err("Cancelled".into());
@@ -310,9 +300,10 @@ async fn resolve_via_webview(app: &AppHandle, link: &str) -> Result<String, Stri
 
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .visible(false)
-        .title("Solving Cloudflare...")
+        .title("Resolving Download Link...")
         .decorations(false)
-        .inner_size(560.0, 700.0)
+        .skip_taskbar(true)
+        .inner_size(800.0, 800.0)
         .initialization_script(RESOLVER_JS)
         .on_navigation({
             let tx = tx.clone();
@@ -334,6 +325,60 @@ async fn resolve_via_webview(app: &AppHandle, link: &str) -> Result<String, Stri
     result
 }
 
+async fn try_direct_resolve(link: &str) -> Result<String, String> {
+    let base_link = link.split('#').next().unwrap_or(link);
+    let file_id = base_link
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .last()
+        .ok_or("no file id")?;
+
+    let go_url = format!("https://fuckingfast.co/f/{}/go", file_id);
+    let uri: http::Uri = go_url.parse().map_err(|e| format!("URI: {}", e))?;
+
+    let mut req = wreq::Request::new(Method::POST, uri);
+    req.headers_mut().insert("HX-Request", HeaderValue::from_static("true"));
+    req.headers_mut().insert(
+        "HX-Current-URL",
+        HeaderValue::try_from(format!("https://fuckingfast.co/f/{}", file_id))
+            .map_err(|e| format!("Header: {}", e))?,
+    );
+    req.headers_mut().insert("HX-Target", HeaderValue::from_static("container"));
+    req.headers_mut().insert("Origin", HeaderValue::from_static("https://fuckingfast.co"));
+    req.headers_mut().insert(
+        "Referer",
+        HeaderValue::try_from(format!("https://fuckingfast.co/f/{}", file_id))
+            .map_err(|e| format!("Header: {}", e))?,
+    );
+    req.headers_mut().insert("Content-Type", HeaderValue::from_static("application/x-www-form-urlencoded"));
+
+    let resp = HTTP_CLIENT.execute(req).await.map_err(|e| format!("HTTP: {}", e))?;
+
+    if resp.status() == 429 || resp.status() == 403 {
+        return Err("Cloudflare/RateLimited".into());
+    }
+
+    if let Some(hx) = resp.headers().get("HX-Redirect").or_else(|| resp.headers().get("hx-redirect")) {
+        if let Ok(s) = hx.to_str() {
+            let url = if s.starts_with('/') {
+                format!("https://fuckingfast.co{}", s)
+            } else {
+                s.to_string()
+            };
+            return Ok(url);
+        }
+    }
+
+    let text = resp.text().await.map_err(|e| format!("Body: {}", e))?;
+    if let Some(m) = text.find("https://dl.fuckingfast.co/") {
+        let rest = &text[m..];
+        let end = rest.find(&['"', '\'', ' ', '<', '>', '\r', '\n'][..]).unwrap_or(rest.len());
+        return Ok(rest[..end].to_string());
+    }
+
+    Err("No redirect header or dl url in body".into())
+}
+
 async fn resolve_download_url(app: &AppHandle, link: &str) -> Result<(String, String), String> {
     let filename = link
         .split('#')
@@ -341,6 +386,12 @@ async fn resolve_download_url(app: &AppHandle, link: &str) -> Result<(String, St
         .ok_or("no filename")?
         .to_string();
 
+    // 1. Try direct HTTP POST resolution first (instant if session cookies exist)
+    if let Ok(dl_url) = try_direct_resolve(link).await {
+        return Ok((dl_url, filename));
+    }
+
+    // 2. Otherwise open Webview window to solve Cloudflare & acquire cookie
     let dl_url = resolve_via_webview(app, link).await?;
 
     Ok((dl_url, filename))
@@ -818,17 +869,7 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
         .map(|s| s.progress = 100.0);
 }
 
-fn human_status(code: &str) -> &str {
-    match code {
-        "start" => "Checking Cloudflare...",
-        "btn_ready" => "Download button ready, clicking...",
-        "clicked" => "Button clicked, waiting...",
-        "dlpass_ok" => "Session cookie received, resolving link...",
-        "no_button" => "Download button not found!",
-        "give_up" => "Resolution failed!",
-        _ => "Resolving link...",
-    }
-}
+
 
 #[tauri::command]
 async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u64) -> Result<String, String> {
