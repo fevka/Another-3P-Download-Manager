@@ -30,7 +30,6 @@ Built with **Rust** (Tauri v2, `wreq` HTTP client with Firefox 148 emulation) on
 * [Usage](#usage)
 * [Options](#options)
 * [Controls](#controls)
-* [Debug Logging](#debug-logging)
 * [Troubleshooting](#troubleshooting)
 * [Project Structure](#project-structure)
 * [License](#license)
@@ -208,39 +207,13 @@ The main button becomes **CANCEL DOWNLOADS** while downloads are active and canc
 
 ---
 
-## Debug Logging
-
-The application writes a timestamped log to:
-
-```text
-%TEMP%\ff_debug.txt
-```
-
-Log entries may include:
-
-* resolver navigation events
-* download redirects
-* transfer-rate samples
-* per-part retry information
-* manually completed browser interactions
-
-On a Rust panic, a crash dump may be written to:
-
-```text
-%TEMP%\ff_panic.txt
-```
-
-> Debug logs may contain URLs or other technical information generated during the download process. Review or remove these logs if you intend to share them publicly.
-
----
-
 ## Troubleshooting
 
 | Symptom                                     | Likely cause / fix                                                                                                                      |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `Cloudflare/DDoS protection`                | The third-party service may require browser-based verification. Restart the download or complete the verification manually if prompted. |
 | Download starts but seems stuck             | A connection may be hanging. The idle timeout detects this and retries from the last written byte.                                      |
-| A browser window appears after ~3 minutes   | Automatic browser interaction timed out. Complete the required interaction manually.                                                    |
+| A browser window appears after ~15 seconds  | Automatic browser interaction timed out. Complete the required interaction manually.                                                    |
 | Resolver errors                             | The third-party service may not have returned a valid download redirect. Try again later or use manual interaction if available.        |
 | Slow / fluctuating speed                    | Try increasing **Conn**, or lowering it if the server limits concurrent connections.                                                    |
 | Cancel does not immediately delete the file | Existing connections may still be closing. Cleanup is retried automatically.                                                            |

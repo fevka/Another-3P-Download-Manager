@@ -115,18 +115,23 @@ async fn fetch_page(url: &str) -> Result<String, String> {
         .map_err(|e| format!("Body: {}", e))
 }
 
-fn debug_log(msg: &str) {
-    let path = std::env::temp_dir().join("ff_debug.txt");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = std::io::Write::write_all(&mut f, format!("[{}] {}\n", chrono_now(), msg).as_bytes());
+#[cfg(target_os = "windows")]
+fn native_click(x: i32, y: i32) {
+    use std::thread::sleep;
+    use std::time::Duration;
+    extern "system" {
+        fn SetCursorPos(X: i32, Y: i32) -> i32;
+        fn mouse_event(dwFlags: u32, dx: i32, dy: i32, dwData: u32, dwExtraInfo: usize);
     }
-}
-
-fn chrono_now() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis().to_string())
-        .unwrap_or_default()
+    const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
+    const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
+    unsafe {
+        SetCursorPos(x, y);
+        sleep(Duration::from_millis(40));
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        sleep(Duration::from_millis(60));
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+    }
 }
 
 const RESOLVER_JS: &str = r#"
@@ -156,26 +161,11 @@ const RESOLVER_JS: &str = r#"
           try {
             const rect = f.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              const doc = f.contentDocument;
-              if (doc) {
-                const cb = doc.querySelector("input[type='checkbox'], .cf-turnstile input, label[role='checkbox']");
-                if (cb) { cb.click(); dbg("turnstile_clicked"); }
-              }
+              const uniq = Math.floor(Math.random() * 1e6);
+              document.title = "FF_CLICK|" + Math.round(rect.left + 40) + "," + Math.round(rect.top + 32) + "," + uniq;
+              return;
             }
           } catch (e) {}
-        }
-        const widget = document.querySelector(".cf-turnstile");
-        if (widget) {
-          const box = widget.querySelector("iframe");
-          if (box) {
-            const rect = box.getBoundingClientRect();
-            box.dispatchEvent(new MouseEvent("click", {
-              bubbles: true, cancelable: true, view: window,
-              clientX: rect.left + rect.width / 2,
-              clientY: rect.top + rect.height / 2
-            }));
-            dbg("turnstile_box_click");
-          }
         }
       } catch (e) {}
     };
@@ -224,15 +214,12 @@ const RESOLVER_JS: &str = r#"
           body: ""
         });
         const hx = resp.headers.get("HX-Redirect") || resp.headers.get("hx-redirect");
-        dbg("fetch_" + resp.status + (hx ? "_hx" : "_nohx"));
         if (hx) {
           const url = hx.startsWith("/") ? "https://fuckingfast.co" + hx : hx;
           report(url);
           return;
         }
-      } catch (e) {
-        dbg("fetch_err_" + String(e).slice(0, 60));
-      }
+      } catch (e) {}
       await sleep(1000);
     }
     dbg("give_up");
@@ -253,29 +240,37 @@ async fn wait_resolver(
         if elapsed >= Duration::from_secs(360) {
             return Err("Timeout: could not solve Cloudflare".into());
         }
-        if !shown && elapsed >= Duration::from_secs(180) {
+        if !shown && elapsed >= Duration::from_secs(15) {
             shown = true;
             let _ = window.show();
-            debug_log("timeout - window made visible, waiting for manual solve");
         }
         tokio::select! {
             v = rx.recv() => match v {
-                Some(d) => {
-                    if shown {
-                        debug_log(&format!("resolved (manual): {}", d));
-                    }
-                    return Ok(d);
-                }
+                Some(d) => return Ok(d),
                 None => return Err("resolver closed".to_string()),
             },
             _ = tokio::time::sleep(Duration::from_millis(500)) => {
                 if let Ok(t) = window.title() {
                     if t != last_title {
                         last_title = t.clone();
-                        debug_log(&format!("resolver title: {}", t));
                         if let Some(rest) = t.strip_prefix("FF_RESOLVED|") {
                             if !rest.is_empty() {
                                 return Ok(rest.to_string());
+                            }
+                        } else if let Some(rest) = t.strip_prefix("FF_CLICK|") {
+                            let parts: Vec<&str> = rest.split(',').collect();
+                            if parts.len() >= 2 {
+                                if let (Ok(x), Ok(y)) = (
+                                    parts[0].trim().parse::<f64>(),
+                                    parts[1].trim().parse::<f64>(),
+                                ) {
+                                    let _ = window.show();
+                                    let scale = window.scale_factor().unwrap_or(1.0);
+                                    let pos = window.outer_position().unwrap_or_default();
+                                    let sx = (pos.x as f64 + x * scale) as i32;
+                                    let sy = (pos.y as f64 + y * scale) as i32;
+                                    std::thread::spawn(move || native_click(sx, sy));
+                                }
                             }
                         } else if let Some(rest) = t.strip_prefix("FF|") {
                             let msg = human_status(rest.trim()).to_string();
@@ -296,7 +291,6 @@ async fn wait_resolver(
 }
 
 async fn resolve_via_webview(app: &AppHandle, link: &str) -> Result<String, String> {
-    debug_log(&format!("resolve_via_webview: {}", link));
     let url = Url::parse(link).map_err(|e| format!("URL parse: {}", e))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -317,22 +311,13 @@ async fn resolve_via_webview(app: &AppHandle, link: &str) -> Result<String, Stri
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .visible(false)
         .title("Solving Cloudflare...")
+        .decorations(false)
         .inner_size(560.0, 700.0)
         .initialization_script(RESOLVER_JS)
         .on_navigation({
             let tx = tx.clone();
             move |u| {
-                debug_log(&format!("nav: {}", u));
                 if let Some(host) = u.host_str() {
-                    if host == "ff-dbg.local" {
-                        let msg = u
-                            .query_pairs()
-                            .find(|(k, _)| k == "m")
-                            .map(|(_, v)| v.to_string())
-                            .unwrap_or_default();
-                        debug_log(&format!("resolver: {}", msg));
-                        return false;
-                    }
                     if host == "dl.fuckingfast.co" || host.ends_with(".fuckingfast.co") {
                         let _ = tx.send(u.to_string());
                         return false;
@@ -438,26 +423,18 @@ const MAX_RETRIES: u32 = 5;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 
 async fn probe_total(dl_url: &str) -> u64 {
-    debug_log(&format!("probe: {}", dl_url));
     let uri: http::Uri = match dl_url.parse() {
         Ok(u) => u,
-        Err(e) => {
-            debug_log(&format!("probe URI error: {}", e));
-            return 0;
-        }
+        Err(_) => return 0,
     };
     let mut req = wreq::Request::new(Method::GET, uri);
     req.headers_mut()
         .insert("Range", HeaderValue::from_static("bytes=0-0"));
     let resp = match HTTP_CLIENT.execute(req).await {
         Ok(r) => r,
-        Err(e) => {
-            debug_log(&format!("probe HTTP hata: {}", e));
-            return 0;
-        }
+        Err(_) => return 0,
     };
     if resp.status() != 206 {
-        debug_log(&format!("probe status: {} (not 206)", resp.status()));
         return 0;
     }
     match resp.headers().get("Content-Range") {
@@ -467,13 +444,9 @@ async fn probe_total(dl_url: &str) -> u64 {
                 .ok()
                 .and_then(|s| s.rsplit('/').next()?.parse::<u64>().ok())
                 .unwrap_or(0);
-            debug_log(&format!("probe total: {} B", v));
             v
         }
-        None => {
-            debug_log("probe Content-Range yok");
-            0
-        }
+        None => 0,
     }
 }
 
@@ -526,11 +499,6 @@ async fn download_part(
 
         let ranged = resp.status() == 206;
         if !ranged && !resp.status().is_success() {
-            debug_log(&format!(
-                "part [{start}-{end}] HTTP {} (attempt {})",
-                resp.status(),
-                attempt
-            ));
             if attempt == MAX_RETRIES {
                 return Err(format!("HTTP {}", resp.status()));
             }
@@ -550,10 +518,7 @@ async fn download_part(
             .create(true)
             .open(&sp)
             .await
-            .map_err(|e| {
-                debug_log(&format!("part open hata: {} sp={}", e, sp));
-                format!("Open: {}", e)
-            })?;
+            .map_err(|e| format!("Open: {}", e))?;
         AsyncSeekExt::seek(&mut f, std::io::SeekFrom::Start(from))
             .await
             .map_err(|e| format!("Seek: {}", e))?;
@@ -624,10 +589,6 @@ async fn download_part(
             if attempt == MAX_RETRIES {
                 return Err(e);
             }
-            debug_log(&format!(
-                "retry part [{start}-{end}] from {from} attempt {}: {e}",
-                attempt + 1
-            ));
             tokio::time::sleep(Duration::from_millis(500 * (attempt as u64 + 1))).await;
             continue;
         }
@@ -638,11 +599,9 @@ async fn download_part(
 }
 
 async fn parallel_download(link: String, dl_url: String, sp: String, total: u64, parts: u64) {
-    debug_log(&format!("parallel: sp={}", sp));
     let file = match tokio::fs::File::create(&sp).await {
         Ok(f) => f,
         Err(e) => {
-            debug_log(&format!("parallel File::create error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -653,7 +612,6 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
     };
     // Pre-allocate the file so parts can write to independent offsets.
     if let Err(e) = file.set_len(total).await {
-        debug_log(&format!("set_len error: {}", e));
         PROGRESS
             .lock()
             .unwrap()
@@ -662,7 +620,6 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
         return;
     }
     drop(file);
-    debug_log(&format!("file ready: {} ({} B)", sp, total));
     PROGRESS
         .lock()
         .unwrap()
@@ -691,60 +648,25 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
         }));
     }
 
-    let sampler_link = link.clone();
-    let sampler = tokio::spawn(async move {
-        let mut prev: u64 = 0;
-        loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            let (cur, tot) = {
-                let m = PROGRESS.lock().unwrap();
-                match m.get(&sampler_link) {
-                    Some(s) => (s.downloaded, s.total),
-                    None => (0u64, 0u64),
-                }
-            };
-            let speed = if cur >= prev {
-                (cur - prev) as f64 / 2.0
-            } else {
-                0.0
-            };
-            debug_log(&format!(
-                "speed_sample: {:.0} B/s delta={}B {}/{}B",
-                speed,
-                cur.saturating_sub(prev),
-                cur,
-                tot
-            ));
-            prev = cur;
-            if tot > 0 && cur >= tot {
-                break;
-            }
-        }
-    });
-
     let mut any_err: Option<String> = None;
     for h in handles {
         match h.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                debug_log(&format!("part HATA: {}", e));
                 if any_err.is_none() {
                     any_err = Some(e);
                 }
             }
             Err(_) => {
-                debug_log("part panicked");
                 if any_err.is_none() {
                     any_err = Some("part task panicked".into());
                 }
             }
         }
     }
-    sampler.abort();
 
     match any_err {
         Some(e) => {
-            debug_log(&format!("parallel_download HATA: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -755,7 +677,6 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
             }
         }
         None => {
-            debug_log("parallel_download TAMAM");
             PROGRESS
                 .lock()
                 .unwrap()
@@ -769,7 +690,6 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
     let uri: http::Uri = match dl_url.parse() {
         Ok(u) => u,
         Err(e) => {
-            debug_log(&format!("single URI error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -783,7 +703,6 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
     let resp = match HTTP_CLIENT.execute(req).await {
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
-            debug_log(&format!("single HTTP {} ({} B)", r.status(), r.content_length().unwrap_or(0)));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -792,7 +711,6 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
             return;
         }
         Err(e) => {
-            debug_log(&format!("single HTTP error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -805,7 +723,6 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
     let mut file = match tokio::fs::File::create(&sp).await {
         Ok(f) => f,
         Err(e) => {
-            debug_log(&format!("single file create error: {}", e));
             PROGRESS
                 .lock()
                 .unwrap()
@@ -904,8 +821,6 @@ async fn single_download(link: String, dl_url: String, sp: String, total: u64) {
 fn human_status(code: &str) -> &str {
     match code {
         "start" => "Checking Cloudflare...",
-        "turnstile_clicked" => "Clicking verification box...",
-        "turnstile_box_click" => "Solving verification...",
         "btn_ready" => "Download button ready, clicking...",
         "clicked" => "Button clicked, waiting...",
         "dlpass_ok" => "Session cookie received, resolving link...",
@@ -917,7 +832,6 @@ fn human_status(code: &str) -> &str {
 
 #[tauri::command]
 async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u64) -> Result<String, String> {
-    debug_log(&format!("start_download: {} parts={}", link, parts));
     PROGRESS.lock().unwrap().insert(
         link.clone(),
         ProgState {
@@ -934,12 +848,8 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
 
     let (dl_url, filename) = match resolve_download_url(&app, &link).await {
         Ok(v) => v,
-        Err(e) => {
-            debug_log(&format!("resolve HATA: {}", e));
-            return Err(e);
-        }
+        Err(e) => return Err(e),
     };
-    debug_log(&format!("resolve OK: {} -> {}", filename, dl_url));
     PROGRESS
         .lock()
         .unwrap()
@@ -956,13 +866,10 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
     let link_c = link.clone();
     tokio::spawn(async move {
         let total = probe_total(&dl_url).await;
-        debug_log(&format!("probe_total: {} B", total));
         let parts = parts.clamp(1, 16);
         if total == 0 || parts <= 1 {
-            debug_log("single_download starting");
             single_download(link_c, dl_url, sp, total).await;
         } else {
-            debug_log(&format!("parallel_download starting parts={}", parts));
             parallel_download(link_c, dl_url, sp, total, parts).await;
         }
     });
@@ -1030,13 +937,6 @@ fn window_close(window: Window) -> Result<bool, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    std::panic::set_hook(Box::new(|info| {
-        let _ = std::fs::write(
-            std::env::temp_dir().join("ff_panic.txt"),
-            format!("PANIC: {:?}", info),
-        );
-    }));
-    let _ = std::fs::write(std::env::temp_dir().join("ff_debug.txt"), "startup ok\n");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
