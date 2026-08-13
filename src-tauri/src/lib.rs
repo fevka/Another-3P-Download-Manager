@@ -51,44 +51,50 @@ struct DownloadInfo {
 fn get_links_from_page(html: &str) -> Result<Vec<String>, String> {
     let document = Html::parse_document(html);
 
-    let file_hoster = Selector::parse("div.entry-content ul > li:nth-child(2) > a")
+    let link_sel = Selector::parse("a[href*='fuckingfast.co']")
         .map_err(|e| format!("Selector: {}", e))?;
-    let tags: Vec<_> = document
-        .select(&file_hoster)
-        .filter(|t| {
-            let text = t.text().collect::<String>();
-            text.contains("Filehoster: FuckingFast")
-        })
-        .collect();
 
-    if tags.is_empty() {
-        return Err("no fuckingfast link found".into());
-    }
-
-    let href = tags[0]
-        .attr("href")
-        .ok_or("no href")?
-        .to_string();
-
-    let spoiler_sel = Selector::parse(
-        "div.entry-content ul > li:nth-child(2) > div.su-spoiler > div.su-spoiler-content",
-    )
-    .map_err(|e| format!("Selector: {}", e))?;
-    let spoilers = document.select(&spoiler_sel).collect::<Vec<_>>();
-
-    if spoilers.is_empty() {
-        return Ok(vec![href]);
-    }
-
-    let mut results = Vec::new();
-    let link_sel = Selector::parse("a").map_err(|e| format!("Selector: {}", e))?;
-    for spoiler in &spoilers {
-        for link in spoiler.select(&link_sel) {
-            if let Some(h) = link.attr("href") {
-                results.push(h.to_string());
+    let mut links: Vec<String> = Vec::new();
+    for el in document.select(&link_sel) {
+        if let Some(h) = el.value().attr("href") {
+            let mut h = h.trim().to_string();
+            if h.starts_with("//") {
+                h = format!("https:{}", h);
+            }
+            if h.starts_with("http") {
+                links.push(h);
             }
         }
     }
+
+    if links.is_empty() {
+        return Err("no fuckingfast link found".into());
+    }
+
+    // Prefer links inside spoiler content (multi-part downloads) when present.
+    let spoiler_sel = Selector::parse("div.su-spoiler-content")
+        .map_err(|e| format!("Selector: {}", e))?;
+    let mut spoiler_links: Vec<String> = Vec::new();
+    for sp in document.select(&spoiler_sel) {
+        for el in sp.select(&link_sel) {
+            if let Some(h) = el.value().attr("href") {
+                let mut h = h.trim().to_string();
+                if h.starts_with("//") {
+                    h = format!("https:{}", h);
+                }
+                if h.starts_with("http") {
+                    spoiler_links.push(h);
+                }
+            }
+        }
+    }
+
+    let mut results = if !spoiler_links.is_empty() {
+        spoiler_links
+    } else {
+        links
+    };
+
     results.sort_by(|a, b| {
         let af = a.split('#').nth(1).unwrap_or(a);
         let bf = b.split('#').nth(1).unwrap_or(b);
@@ -996,4 +1002,39 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WD2_SPOILER: &str = r#"<div class="su-spoiler-content su-u-clearfix su-u-trim">
+<a href="https://fuckingfast.co/g1pdp1kuolm5#Watch_Dogs_2_--_fitgirl-repacks.site_--_.part01.rar" target="_blank" rel="noopener nofollow">part01.rar</a>
+<a href="https://fuckingfast.co/w7m35s4qeg8h#Watch_Dogs_2_--_fitgirl-repacks.site_--_.part02.rar" target="_blank" rel="noopener nofollow">part02.rar</a>
+<a href="https://fuckingfast.co/a5do7kypp5d6#fg-optional-bonus-content.bin" target="_blank" rel="noopener nofollow">bonus.bin</a>
+<a href="https://fuckingfast.co/86skntewlrun#fg-selective-brazilian.bin.part1.rar" target="_blank" rel="noopener nofollow">brazilian part1</a>
+</div>"#;
+
+    #[test]
+    fn extracts_fuckingfast_links_from_spoiler_div() {
+        let links = get_links_from_page(WD2_SPOILER).unwrap();
+        assert_eq!(links.len(), 4);
+        assert!(links[0].ends_with("part01.rar"));
+        assert!(links[1].ends_with("part02.rar"));
+        assert!(links[2].starts_with("https://fuckingfast.co/"));
+    }
+
+    #[test]
+    fn extracts_single_link_without_spoiler() {
+        let html = r#"<div class="entry-content"><a href="https://fuckingfast.co/abc123#game.rar">Filehoster: FuckingFast</a></div>"#;
+        let links = get_links_from_page(html).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0], "https://fuckingfast.co/abc123#game.rar");
+    }
+
+    #[test]
+    fn errors_when_no_fuckingfast_links() {
+        let html = "<html><body><p>nothing here</p></body></html>";
+        assert!(get_links_from_page(html).is_err());
+    }
 }
