@@ -17,6 +17,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 scraper = { version = "0.27", features = ["atomic"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"

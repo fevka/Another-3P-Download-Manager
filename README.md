@@ -40,6 +40,7 @@ Built with **Rust** (Tauri v2, `wreq` HTTP client with Firefox 148 emulation) on
 ## Features
 
 * **One-click setup** — paste a supported webpage URL or a list of direct download-host links; the app extracts available file links automatically.
+* **Updates tab** — paste a game page URL, list the available update packages, and resolve each one's FileCrypt-protected links in a dedicated window.
 * **Browser-assisted access** — a hidden WebView2 window can interact with protected download pages using normal browser behavior and obtain an available download redirect.
 * **Parallel segmented downloads** — each file is split into `N` ranges (default 4, up to 8) downloaded concurrently to maximize available bandwidth.
 * **Resilience** — per-part automatic retries (5 attempts) that resume from the last written offset, plus a 20 s idle timeout that detects and recovers from stuck/connection-hung connections.
@@ -63,7 +64,25 @@ Each extracted link is passed to the download-resolution stage.
 
 ---
 
-### 2. Download resolution
+### 2. Update packages (FileCrypt)
+
+On the **Updates** tab, pasting a game page URL returns the list of available update packages. The backend fetches the page HTML and extracts the FileCrypt container links (e.g. `filecrypt.cc/Container/...`) shown for each update.
+
+Each update's links are resolved in a dedicated small window that loads the FileCrypt container. Because the actual download links sit behind a **security check (captcha)**, the window:
+
+1. Loads the container page and hides everything except the captcha box.
+2. Waits for the captcha to become interactive.
+3. Solves it — either **automatically** (a real, human-like simulated OS mouse click) or **manually** (the user clicks the box), depending on the selected setting.
+4. Once the check passes, the decrypted links are read straight from the DOM and added to the download queue.
+
+The captcha behaviour is configurable in **Settings → General → Security Check (Captcha)**, and this setting applies only to the Updates tab:
+
+* **Auto (simulated mouse)** — the app moves the mouse to the captcha and clicks it for you. Convenient, with a very low risk.
+* **Manual (I click it myself)** — you click the box yourself. The safest option.
+
+---
+
+### 3. Download resolution
 
 Some download hosts use browser-based protection or session mechanisms that prevent a normal HTTP request from immediately returning a downloadable file.
 
@@ -86,7 +105,7 @@ If automatic resolution does not complete within **180 seconds**, the window bec
 
 ---
 
-### 3. Parallel download
+### 4. Parallel download
 
 The backend probes the file size with a `Range: bytes=0-0` request and, when supported by the server, pre-allocates the file and splits the download into multiple ranges.
 
@@ -182,6 +201,16 @@ Each file progresses through:
 
 Files are written using the filename supplied by the download source.
 
+### Updates tab
+
+The **Updates** tab handles update packages protected by FileCrypt:
+
+1. Paste the game page URL into the top field.
+2. Click **GET UPDATES** to load the list of available update packages.
+3. Next to a package, click **GET LINKS** — a small window opens with the FileCrypt security check.
+4. Depending on the captcha setting, the box is clicked automatically (auto) or you click it yourself (manual).
+5. Once solved, the decrypted update parts are added to the download queue for you to select and download.
+
 ---
 
 ## Options
@@ -190,6 +219,7 @@ Files are written using the filename supplied by the download source.
 | -------- | ---------------- | ------- | ------------------------------------------------ |
 | **Max**  | 1 – 5            | 1       | Maximum number of files downloaded concurrently. |
 | **Conn** | 1, 2, 3, 4, 6, 8 | 4       | Number of parallel range connections per file.   |
+| **Security Check (Captcha)** | Auto / Manual | Manual  | How the FileCrypt captcha is solved on the Updates tab. Auto clicks with a simulated mouse; Manual leaves it to you. |
 
 More connections may improve throughput on some servers, while other servers may throttle or limit concurrent connections.
 
@@ -243,6 +273,8 @@ ff-downloader/
 | Symbol                 | Purpose                                                   |
 | ---------------------- | --------------------------------------------------------- |
 | `get_links_from_page`  | Extracts supported download links from a webpage.         |
+| `get_updates`          | Fetches a game page and extracts its FileCrypt update links. |
+| `open_container`       | Opens a FileCrypt container window, solves the captcha, reads the decrypted links. |
 | `resolve_via_webview`  | Performs browser-based download resolution.               |
 | `resolve_download_url` | Resolves an available download URL from a supported host. |
 | `probe_total`          | Determines the downloadable file size when supported.     |
