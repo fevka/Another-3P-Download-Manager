@@ -461,10 +461,22 @@ async fn wait_resolver(
                 None => return Err("resolver closed".to_string()),
             },
             _ = tokio::time::sleep(Duration::from_millis(400)) => {
-                if !has_centered && elapsed >= Duration::from_secs(7) {
+                if !has_centered && elapsed >= Duration::from_secs(10) {
                     has_centered = true;
                     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(500, 600)));
-                    let _ = window.center();
+                    // Center on the PRIMARY monitor so the window never pops up
+                    // on a secondary display when automatic resolution needs help.
+                    let centered = window.primary_monitor().ok().flatten().map(|m| {
+                        let mp = m.position();
+                        let ms = m.size();
+                        let ws = window.outer_size().unwrap_or(tauri::PhysicalSize::new(500, 600));
+                        let x = mp.x + (ms.width as i32 - ws.width as i32) / 2;
+                        let y = mp.y + (ms.height as i32 - ws.height as i32) / 2;
+                        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+                    });
+                    if centered.is_none() {
+                        let _ = window.center();
+                    }
                     let _ = window.set_focus();
                 }
                 if last_inject.elapsed() >= Duration::from_secs(2) {
@@ -1337,6 +1349,15 @@ fn window_close(window: Window) -> Result<bool, String> {
     Ok(true)
 }
 
+#[tauri::command]
+fn default_download_dir() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "cannot resolve executable directory".to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1356,6 +1377,7 @@ pub fn run() {
             window_minimize,
             window_toggle_maximize,
             window_close,
+            default_download_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

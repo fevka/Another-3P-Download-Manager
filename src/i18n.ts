@@ -61,6 +61,7 @@ export interface Dict {
   theme_gold: string;
   theme_matrix: string;
   theme_retro: string;
+  theme_fp: string;
   btn_save: string;
   btn_close: string;
   lbl_files: (n: number) => string;
@@ -121,6 +122,7 @@ const en: Dict = {
   theme_gold: "Retro Gold",
   theme_matrix: "Matrix Green",
   theme_retro: "Retro 8-bit (Default)",
+  theme_fp: "FP",
   btn_save: "Save",
   btn_close: "Close",
   lbl_files: (n: number) => `${n} file(s)`,
@@ -181,6 +183,7 @@ const tr: Dict = {
   theme_gold: "Retro Altın",
   theme_matrix: "Matrix Yeşil",
   theme_retro: "Retro 8-bit (Varsayılan)",
+  theme_fp: "FP",
   btn_save: "Kaydet",
   btn_close: "Kapat",
   lbl_files: (n: number) => `${n} dosya`,
@@ -241,6 +244,7 @@ const es: Dict = {
   theme_gold: "Retro Dorado",
   theme_matrix: "Matrix Verde",
   theme_retro: "Retro 8-bit (Predeterminado)",
+  theme_fp: "FP",
   btn_save: "Guardar",
   btn_close: "Cerrar",
   lbl_files: (n: number) => `${n} archivo(s)`,
@@ -301,6 +305,7 @@ const de: Dict = {
   theme_gold: "Retro Gold",
   theme_matrix: "Matrix Grün",
   theme_retro: "Retro 8-bit (Standard)",
+  theme_fp: "FP",
   btn_save: "Speichern",
   btn_close: "Schließen",
   lbl_files: (n: number) => `${n} Datei(en)`,
@@ -361,6 +366,7 @@ const fr: Dict = {
   theme_gold: "Retro Or",
   theme_matrix: "Matrix Vert",
   theme_retro: "Retro 8-bit (Par défaut)",
+  theme_fp: "FP",
   btn_save: "Enregistrer",
   btn_close: "Fermer",
   lbl_files: (n: number) => `${n} fichier(s)`,
@@ -421,6 +427,7 @@ const ru: Dict = {
   theme_gold: "Ретро Золото",
   theme_matrix: "Матрица Зелёная",
   theme_retro: "Ретро 8-бит (По умолчанию)",
+  theme_fp: "FP",
   btn_save: "Сохранить",
   btn_close: "Закрыть",
   lbl_files: (n: number) => `${n} файл(ов)`,
@@ -481,6 +488,7 @@ const pt: Dict = {
   theme_gold: "Retro Dourado",
   theme_matrix: "Matrix Verde",
   theme_retro: "Retro 8-bit (Padrão)",
+  theme_fp: "FP",
   btn_save: "Salvar",
   btn_close: "Fechar",
   lbl_files: (n: number) => `${n} arquivo(s)`,

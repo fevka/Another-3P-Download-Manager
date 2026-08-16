@@ -104,6 +104,41 @@ body.theme-retro {
   --panel-bg: #10102a;
 }
 
+/* F-List flag theme: red / black / white / green */
+body.theme-fp {
+  --bg: #0a0a0a;
+  --surface: #161616;
+  --surface2: #1f1f1f;
+  --border: #3a3a3a;
+  --border-light: #555555;
+  --text: #ffffff;
+  --text-muted: #c0c0c0;
+  --accent: #e63946;
+  --accent-dark: #c1121f;
+  --accent-glow: rgba(230, 57, 70, 0.35);
+  --success: #2a9d3f;
+  --success-dark: #1f7a31;
+  --error: #e63946;
+  --warning: #ffd700;
+  --hp-red: #2a9d3f;
+  --mp-blue: #ffffff;
+  --gold: #ffd700;
+  --shadow: #000;
+  --topbar-bg: rgba(0, 0, 0, 0.45);
+  --panel-bg: #0d0d0d;
+}
+
+/* FP theme: make the select-row buttons red like the rest, so the white text
+   stays readable instead of white-on-white. */
+body.theme-fp .sel-btn {
+  background: var(--accent-dark);
+  border-color: var(--accent);
+}
+body.theme-fp .sel-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--gold);
+}
+
 body {
   font-family: "Press Start 2P", monospace;
   background: var(--bg);
@@ -199,6 +234,7 @@ body {
   display: flex;
   align-items: center;
   height: 100%;
+  gap: 4px;
 }
 .win-btn {
   width: 45px;
@@ -241,6 +277,15 @@ body {
   font-family: inherit;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn i {
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 .btn:hover {
   background: #444;
@@ -254,7 +299,7 @@ body {
   background: var(--accent-dark);
 }
 .btn.sm {
-  padding: 4px 8px;
+  padding: 8px 14px;
   font-size: 12px;
 }
 .app-controls .btn {
@@ -1128,12 +1173,20 @@ textarea::-webkit-scrollbar-thumb:hover,
   gap: 10px;
 }
 .path-display {
-  display: block;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   color: var(--text-muted);
-  word-break: break-all;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 6px 10px;
   flex: 1;
-  text-align: right;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .modal-footer {
   padding: 20px;

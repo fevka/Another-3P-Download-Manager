@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { LANGS, getDict, LangCode } from "./i18n";
 import "./App.css";
 
-export type ThemeName = "cyberpunk" | "gold" | "matrix" | "retro";
+export type ThemeName = "cyberpunk" | "gold" | "matrix" | "retro" | "fp";
 
 function extractFileName(link: string): string {
   const afterHash = link.split("#").pop();
@@ -89,7 +89,7 @@ function App() {
   const startUpdateDownloadsRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
-    document.body.classList.remove("theme-cyberpunk", "theme-gold", "theme-matrix", "theme-retro");
+    document.body.classList.remove("theme-cyberpunk", "theme-gold", "theme-matrix", "theme-retro", "theme-fp");
     document.body.classList.add(`theme-${theme}`);
   }, [theme]);
 
@@ -98,6 +98,19 @@ function App() {
     localStorage.setItem("theme", theme);
     localStorage.setItem("captchaMode", captchaMode);
   }, [lang, theme]);
+
+  useEffect(() => {
+    if (!downloadDir) {
+      invoke<string>("default_download_dir")
+        .then((dir) => {
+          if (dir) {
+            setDownloadDir(dir);
+            localStorage.setItem("downloadDir", dir);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [downloadDir]);
 
   useEffect(() => {
     const tooltip = document.getElementById("global-tooltip");
@@ -819,35 +832,6 @@ function App() {
             <div className="btn-row">
               <button onClick={getLinksFn} disabled={isProcessing}>{t.btn_fetch_url}</button>
               <button onClick={parseLinks} disabled={isProcessing}>{t.btn_parse}</button>
-              <div className="concurrency-group">
-                <label>{t.lbl_simultaneous}</label>
-                <select
-                  value={maxConcurrent}
-                  onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-                  disabled={isProcessing}
-                >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                  <option value={4}>4</option>
-                  <option value={5}>5</option>
-                </select>
-              </div>
-              <div className="concurrency-group">
-                <label>{t.lbl_conn}:</label>
-                <select
-                  value={connections}
-                  onChange={(e) => setConnections(Number(e.target.value))}
-                  disabled={isProcessing}
-                >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                  <option value={4}>4</option>
-                  <option value={6}>6</option>
-                  <option value={8}>8</option>
-                </select>
-              </div>
             </div>
           </>
         ) : (
@@ -867,13 +851,6 @@ function App() {
           </>
         )}
       </section>
-
-      {activeTab === "game" && (
-        <section className="dir-section">
-          <input type="text" placeholder={t.dir_placeholder} value={downloadDir} readOnly />
-          <button onClick={pickDir}>{t.btn_browse}</button>
-        </section>
-      )}
 
       {activeTab === "updates" && (
         <section className="updates-section">
@@ -1119,6 +1096,7 @@ function App() {
                     <option value="gold">{t.theme_gold}</option>
                     <option value="matrix">{t.theme_matrix}</option>
                     <option value="retro">{t.theme_retro}</option>
+                    <option value="fp">{t.theme_fp}</option>
                   </select>
                 </div>
               </div>
