@@ -1397,20 +1397,20 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    const WD2_SPOILER: &str = r#"<div class="su-spoiler-content su-u-clearfix su-u-trim">
-<a href="https://fuckingfast.co/g1pdp1kuolm5#Watch_Dogs_2_--_fitgirl-repacks.site_--_.part01.rar" target="_blank" rel="noopener nofollow">part01.rar</a>
-<a href="https://fuckingfast.co/w7m35s4qeg8h#Watch_Dogs_2_--_fitgirl-repacks.site_--_.part02.rar" target="_blank" rel="noopener nofollow">part02.rar</a>
-<a href="https://fuckingfast.co/a5do7kypp5d6#fg-optional-bonus-content.bin" target="_blank" rel="noopener nofollow">bonus.bin</a>
-<a href="https://fuckingfast.co/86skntewlrun#fg-selective-brazilian.bin.part1.rar" target="_blank" rel="noopener nofollow">brazilian part1</a>
+    const SPOILER_SAMPLE: &str = r#"<div class="su-spoiler-content su-u-clearfix su-u-trim">
+<a href="https://fuckingfast.co/g1pdp1kuolm5#sample.part01.rar" target="_blank" rel="noopener nofollow">part01.rar</a>
+<a href="https://fuckingfast.co/w7m35s4qeg8h#sample.part02.rar" target="_blank" rel="noopener nofollow">part02.rar</a>
+<a href="https://fuckingfast.co/a5do7kypp5d6#bonus-content.bin" target="_blank" rel="noopener nofollow">bonus.bin</a>
+<a href="https://fuckingfast.co/86skntewlrun#brazilian.bin.part1.rar" target="_blank" rel="noopener nofollow">brazilian part1</a>
 </div>"#;
 
     #[test]
     fn extracts_fuckingfast_links_from_spoiler_div() {
-        let links = get_links_from_page(WD2_SPOILER).unwrap();
+        let links = get_links_from_page(SPOILER_SAMPLE).unwrap();
         assert_eq!(links.len(), 4);
-        assert!(links[0].ends_with("part01.rar"));
-        assert!(links[1].ends_with("part02.rar"));
-        assert!(links[2].starts_with("https://fuckingfast.co/"));
+        assert!(links.iter().all(|l| l.starts_with("https://fuckingfast.co/")));
+        assert!(links.iter().any(|l| l.ends_with("part01.rar")));
+        assert!(links.iter().any(|l| l.ends_with("part02.rar")));
     }
 
     #[test]
@@ -1432,15 +1432,15 @@ mod tests {
         let html = r#"<h3>Game Updates &#8211; Direct Links only</h3>
 <div style="background-color: #9aff612e; border: 1px solid #159311; border-radius: 10px; padding:20px; margin-bottom: 20px">
 <ol>
-<li><a href="https://filecrypt.cc/Container/DB6F829416.html">TEKKEN.8.Update.v2.08.00.incl.DLC-RUNE (3 parts)</a> (Source: scene)<br />
+<li><a href="https://filecrypt.cc/Container/DB6F829416.html">Sample.Update.v2.08.00.incl.DLC-RUNE (3 parts)</a> (Source: scene)<br />
 or<br />
-<a href="https://filecrypt.cc/Container/68C5B68CB1.html">TEKKEN_8_Update_from_v2.06.01_to_v2.08.00-ElAmigos (2 parts)</a></p>
-<li><a href="https://filecrypt.cc/Container/6185D28BB9.html">TEKKEN.8.Update.v2.09.00.incl.DLC-RUNE (2 parts)</a>
+<a href="https://filecrypt.cc/Container/68C5B68CB1.html">Sample_Update_from_v2.06.01_to_v2.08.00 (2 parts)</a></p>
+<li><a href="https://filecrypt.cc/Container/6185D28BB9.html">Sample.Update.v2.09.00.incl.DLC-RUNE (2 parts)</a>
 </ol>
 </div>"#;
         let entries = parse_updates_from_page(html);
         assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].name, "TEKKEN.8.Update.v2.08.00.incl.DLC-RUNE (3 parts)");
+        assert_eq!(entries[0].name, "Sample.Update.v2.08.00.incl.DLC-RUNE (3 parts)");
         assert_eq!(entries[0].url, "https://filecrypt.cc/Container/DB6F829416.html");
         assert!(entries.iter().all(|e| e.url.contains("filecrypt.cc/Container/")));
     }
