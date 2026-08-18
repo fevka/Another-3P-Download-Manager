@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -1045,21 +1045,31 @@ async fn parallel_download(link: String, dl_url: String, sp: String, total: u64,
     if parts > total {
         parts = total;
     }
-    let part_len = total / parts;
+    if parts == 0 {
+        parts = 1;
+    }
+    // Dynamic chunks: workers pull the next range from a shared cursor instead
+    // of waiting for the slowest fixed-size part to finish.
+    let chunk_size = (total / (parts * 16)).max(1024 * 1024).min(16 * 1024 * 1024);
+
+    let cursor = Arc::new(AtomicU64::new(0));
 
     let mut handles = Vec::new();
-    for i in 0..parts {
-        let start = i * part_len;
-        let end = if i == parts - 1 {
-            total - 1
-        } else {
-            (i + 1) * part_len - 1
-        };
+    for _ in 0..parts {
         let link_c = link.clone();
         let dl_url_c = dl_url.clone();
         let sp_c = sp.clone();
+        let cursor_c = Arc::clone(&cursor);
         handles.push(tokio::spawn(async move {
-            download_part(link_c, dl_url_c, sp_c, start, end).await
+            loop {
+                let start = cursor_c.fetch_add(chunk_size, Ordering::Relaxed);
+                if start >= total {
+                    break;
+                }
+                let end = (start + chunk_size - 1).min(total - 1);
+                download_part(link_c.clone(), dl_url_c.clone(), sp_c.clone(), start, end).await?;
+            }
+            Ok(())
         }));
     }
 
@@ -1280,7 +1290,7 @@ async fn start_download(app: AppHandle, link: String, save_dir: String, parts: u
     let link_c = link.clone();
     tokio::spawn(async move {
         let total = probe_total(&dl_url).await;
-        let parts = parts.clamp(1, 16);
+        let parts = parts.clamp(1, 8);
         if total == 0 || parts <= 1 {
             single_download(link_c, dl_url, sp, total).await;
         } else {
