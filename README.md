@@ -66,7 +66,7 @@ Each extracted link is passed to the download-resolution stage.
 
 ### 2. Update packages (FileCrypt)
 
-On the **Updates** tab, pasting a game page URL returns the list of available update packages. The backend fetches the page HTML and extracts the FileCrypt container links (e.g. `filecrypt.cc/Container/...`) shown for each update.
+On the **Updates** tab, pasting a supported page URL returns the list of available update packages. The backend fetches the page HTML and extracts the FileCrypt container links (e.g. `filecrypt.cc/Container/...`) shown for each update.
 
 Each update's links are resolved in a dedicated small window that loads the FileCrypt container. Because the actual download links sit behind a **security check (captcha)**, the window:
 
